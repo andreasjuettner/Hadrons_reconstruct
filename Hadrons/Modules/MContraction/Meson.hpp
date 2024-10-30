@@ -101,6 +101,7 @@ public:
     virtual std::vector<std::string> getInput(void);
     virtual std::vector<std::string> getOutput(void);
     virtual std::vector<std::string> getOutputFiles(void);
+    typedef typename FImpl1::ComplexField    ComplexField;
 protected:
     // execution
     virtual void setup(void);
@@ -221,21 +222,35 @@ adj(q2)*(g5*(gSnk))*(q1)
 template <typename FImpl1, typename FImpl2>
 void TMeson<FImpl1, FImpl2>::execute(void)
 {
-    LOG(Message) << "Computing meson contractions '" << getName() << "' using"
+    LOG(Message) << "seriously Computing meson contractions '" << getName() << "' using"
                  << " quarks '" << par().q1 << "' and '" << par().q2 << "'"
                  << std::endl;
     
+    Complex  cc;
     std::vector<TComplex>  buf;
     std::vector<Result>    result;
+    std::vector<Result>    result_t;
     Gamma                  g5(Gamma::Algebra::Gamma5);
     int                    nt = env().getDim(Tp);
 
     std::map<Gamma::Algebra, std::vector<Gamma::Algebra>> gammaMap;
     int nGammas = parseGammaString(gammaMap);
     result.resize(nGammas);
+    result_t.resize(nGammas);
+    Real volume = 1.0;
+    Coordinate latt_size = GridDefaultLatt();
+    for (int mu = 0; mu < Nd; mu++)
+    {
+    volume *= latt_size[mu];
+    }
+
     for (unsigned int i = 0; i < result.size(); ++i)
     {
-        result[i].corr.resize(nt);
+        result[i].corr.resize(volume);
+    }
+    for (unsigned int i = 0; i < result_t.size(); ++i)
+    {
+        result_t[i].corr.resize(nt);
     }
     if (envHasType(SlicedPropagator1, par().q1) and
         envHasType(SlicedPropagator2, par().q2))
@@ -269,14 +284,52 @@ void TMeson<FImpl1, FImpl2>::execute(void)
     {
         auto &q1 = envGet(PropagatorField1, par().q1);
         auto &q2 = envGet(PropagatorField2, par().q2);
-        
+
+        //Real volume = 1.0;
+	//Coordinate latt_size = GridDefaultLatt();
+        //for (int mu = 0; mu < Nd; mu++)
+    	//{
+        //volume *= latt_size[mu];
+    	//}
+        //std::string FileName_{"out"};
+        //std::string Tag{"tag"};
+        //FileName_.append( ".h5" );
+        //LOG(Message) << "Writing " << " to file " << FileName_ << " tag " << Tag << std::endl;
+        //std::vector<hsize_t> dims,
+        //                 gridDims;
+         
+	//dims.push_back(1);
+	//gridDims.push_back(volume);
+         
+        //Hdf5Writer writer( FileName_ );
+        ////Grid::write (writer, "MetaData", MetaData);
+        ////Grid::write (writer, "IndexNames", IndexNames);
+        //Grid::write (writer, "GridDimensions", gridDims);
+        //Grid::write (writer, "TensorDimensions", dims);
+        //H5NS::DataSet dataset;
+        //H5NS::DataSpace      dataspace(dims.size(), dims.data());
+        //H5NS::DSetCreatPropList     plist;
+         
+        //plist.setFletcher32();
+        //plist.setChunk(dims.size(), dims.data());
+        //H5NS::Group &group = writer.getGroup();
+
+
+
+
+
+
+
+
+
+
         envGetTmp(LatticeComplex, c);
         envGetTmp(LatticePropagator, q1Gq2);
         if (par().sink.empty())
         {
             HADRONS_ERROR(Definition, "no sink provided");
         }
-        LOG(Message) << "(using sink '" << par().sink << "')" << std::endl;
+        LOG(Message) << "(wow using sink '" << par().sink << "')" << std::endl;
         unsigned int i = 0;
         for(auto &ss: gammaMap)
         {
@@ -297,6 +350,7 @@ void TMeson<FImpl1, FImpl2>::execute(void)
                     
                     startTimer("mesonConnected");
                     c = trace(mesonConnected2(q1Gq2, gSrc)*sink);
+		    LOG(Message) << "outputtung c " << TensorRemove(c) << std::endl;
                     stopTimer("mesonConnected");
                     startTimer("sliceSum");
                     sliceSum(c, buf, Tp);
@@ -307,24 +361,46 @@ void TMeson<FImpl1, FImpl2>::execute(void)
                     SinkFnScalar &sink = envGet(SinkFnScalar, par().sink);
                     
                     startTimer("mesonConnected");
+                    //c   = trace(mesonConnected2(q1Gq2, gSrc));
                     c   = trace(mesonConnected2(q1Gq2, gSrc));
+		    
+		    buf = sink(c);
                     stopTimer("mesonConnected");
-                    startTimer("sliceSum");
-                    buf = sink(c);
-                    stopTimer("sliceSum");
                 }
-                for (unsigned int t = 0; t < buf.size(); ++t)
+                startTimer("peek Sites");
+                //for (unsigned int t = 0; t < buf.size(); ++t)
+		std::vector<int> xvec;
+		//autoView(buf,c,CpuRead)
+		//for (unsigned int i = 0; i< volume;i++)
+		int ix=0;
+                for (unsigned int x = 0; x < latt_size[0]; ++x)
+                for (unsigned int y = 0; y < latt_size[1]; ++y)
+                for (unsigned int z = 0; z < latt_size[2]; ++z)
+                for (unsigned int t = 0; t < latt_size[3]; ++t)
                 {
-                    result[i].corr[t] = TensorRemove(buf[t]);
+		 std::vector<int> mysite{x,y,z,t};
+		 cc = peekSite(c,mysite);
+                 result[i].corr[ix] = cc;
+		 ix++;
                 }
+                for (unsigned int t = 0; t < latt_size[3]; ++t)
+                {
+                 result_t[i].corr[t] = TensorRemove(buf[t]);
+		}
                 result[i].gamma_snk = gSnk.g;
                 result[i].gamma_src = gSrc.g;
+                result_t[i].gamma_snk = gSnk.g;
+                result_t[i].gamma_src = gSrc.g;
                 i++;
+                stopTimer("peek Sites");
             }
         }
-    }
-    startTimer("I/O");
     saveResult(par().output, "meson", result);
+    saveResult(par().output+"_t", "meson_t", result_t);
+    }
+    LOG(Message) << "DONE WTF"  << std::endl;
+    startTimer("I/O");
+    //saveResult(par().output, "meson", result);
     stopTimer("I/O");
     auto &out = envGet(HadronsSerializable, getName());
     out = result;
